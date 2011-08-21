@@ -1,0 +1,54 @@
+GSTFS, a gstreamer-based transcoding FUSE filesystem
+Bob Copeland <me@bobcopeland.com>
+
+Introduction
+~~~~~~~~~~~~
+
+GSTFS is a filesystem for on-demand transcoding of music files between 
+different formats.  It utilizes the gstreamer library for conversion so any
+formats supported by gstreamer should also be supported by gstfs.  The 
+filesystem's only requirement is that the gstreamer pipeline begin with a 
+filesrc with the name "_source" and end with an fdsink with the name "_dest".
+The filesystem will automatically substitute the filename and fd number in
+these pipelines.
+
+
+Usage
+~~~~~
+
+The example shell script mp32wav.sh is illustrative (pretend it's all on one 
+line):
+
+    #! /bin/sh
+    gstfs -d -osrc=$1,src_ext=mp3,dst_ext=wav,\
+	pipeline="filesrc name=\"_source\" ! decodebin ! audioconvert ! \
+	wavenc ! fdsink name=\"_dest\" sync=false" $2
+
+The pipeline loads the mp3 from a file, decodes it, converts it to the proper
+sampling rate, sample size and endianness, and encodes it as a wave file.  
+gst-launch(1) is a useful program to test pipelines to see if they work (e.g. 
+use alsasink).  The parameters to the script are the music directory 
+containing mp3s, followed by the mount point where wave files will appear.
+
+Once mounted, the first read of a file will transcode it, blocking until 
+transcoding is complete.  The transcoded data is cached in memory for 
+subsequent reads.
+
+
+Mount Options
+~~~~~~~~~~~~~
+
+GSTFS currently recognizes the following mount options:
+
+    src: The source directory of files you want to transcode
+    src_ext: Source format file extension
+    dst_ext: Target format file extension
+    pipeline: gstreamer conversion pipeline
+    ncache: number of files to cache in memory (default: 50)
+
+
+License
+~~~~~~~
+
+GSTFS is licensed under the LGPL so that it may be used with any set of
+gstreamer plugins.  See the COPYING file for details.
