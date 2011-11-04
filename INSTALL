@@ -1,0 +1,16 @@
+To install, normally one just needs:
+
+    $ ./configure && make
+
+And optionally,
+
+    $ sudo make install 
+
+If building from git, you need autotools (autoconf/automake) installed.
+The config script uses m4 macros from pkg-config, and one from
+autoconf-archive to test pthreads.  With these installed, just do:
+
+    $ ./autogen.sh && ./configure && make
+
+See the included scripts for example use.
+
