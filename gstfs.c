@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <unistd.h>
 #include <fuse.h>
@@ -40,6 +41,7 @@ struct gstfs_file_info
     char *filename;           /* hash key */
     char *src_filename;       /* filename in other mount */
     pthread_mutex_t mutex;    /* protects this file info */
+    bool passthru;            /* true if this is a file in the mirror */
     size_t len;               /* size of file */
     size_t alloc_len;         /* allocated size of buf */
     char *buf;                /* completely converted file */
@@ -67,10 +69,16 @@ void usage(const char *prog)
 struct gstfs_file_info *get_file_info(const char *filename)
 {
     struct gstfs_file_info *fi;
+    struct stat stbuf;
 
     fi = calloc(1, sizeof(struct gstfs_file_info));
     fi->filename = g_strdup(filename);
     fi->src_filename = get_source_path(filename);
+    fi->passthru = !is_target_type(filename);
+
+    if (stat(fi->src_filename, &stbuf) == 0)
+        fi->len = stbuf.st_size;
+
     pthread_mutex_init(&fi->mutex, NULL);
     return fi;
 }
@@ -109,6 +117,18 @@ int is_target_type(const char *filename)
     return (ext && strcmp(ext+1, mount_info.dst_ext) == 0);
 }
 
+/*
+ *  Return true if filename exists in the original dir.
+ */
+bool exists_in_mirror(const char *filename)
+{
+    int result;
+    struct statvfs buf;
+
+    result = gstfs_statfs(filename, &buf);
+    return result == 0;
+}
+
 /*  
  *  Remove items from the file cache until below the maximum.
  *  This is relatively quick since we can find elements by looking at the
@@ -140,7 +160,7 @@ static struct gstfs_file_info *gstfs_lookup(const char *path)
 {
     struct gstfs_file_info *ret;
 
-    if (!is_target_type(path))
+    if (!is_target_type(path) && !exists_in_mirror(path))
         return NULL;
 
     pthread_mutex_lock(&mount_info.cache_mutex);
@@ -237,6 +257,17 @@ static int read_cb(char *buf, size_t size, void *data)
     return 0;
 }
 
+int gstfs_read_passthru(const char *path, char *buf, size_t size, off_t offset)
+{
+    size_t count;
+    int fd = open(path, O_RDONLY);
+
+    lseek(fd, offset, SEEK_SET);
+    count = read(fd, buf, size);
+    close(fd);
+    return count;
+}
+
 int gstfs_read(const char *path, char *buf, size_t size, off_t offset, 
     struct fuse_file_info *fi)
 {
@@ -247,6 +278,8 @@ int gstfs_read(const char *path, char *buf, size_t size, off_t offset,
         return -ENOENT;
 
     pthread_mutex_lock(&info->mutex);
+    if (info->passthru)
+        return gstfs_read_passthru(info->src_filename, buf, size, offset);
 
     if (!info->buf)
         transcode(mount_info.pipeline, info->src_filename, read_cb, info);
