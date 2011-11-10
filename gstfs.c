@@ -74,7 +74,8 @@ struct gstfs_file_info *get_file_info(const char *filename)
     fi = calloc(1, sizeof(struct gstfs_file_info));
     fi->filename = g_strdup(filename);
     fi->src_filename = get_source_path(filename);
-    fi->passthru = !is_target_type(filename);
+    fi->passthru = !is_target_type(filename) ||
+                   is_target_type(fi->src_filename);
 
     if (stat(fi->src_filename, &stbuf) == 0)
         fi->len = stbuf.st_size;
@@ -194,9 +195,15 @@ out:
  */
 static char *get_source_path(const char *filename)
 {
+    struct stat buf;
     char *source;
 
     source = g_strdup_printf("%s%s", mount_info.src_mnt, filename);
+
+    /* if target file already exists in source, then don't transcode */
+    if (stat(source, &buf) == 0)
+        return source;
+
     source = replace_ext(source, mount_info.dst_ext, mount_info.src_ext);
     return source;
 }
